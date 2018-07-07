@@ -1,0 +1,464 @@
+
+Description: 
+
+    This template deploys a VPC, with a pair of public and private subnets and External facing ELB 
+
+
+
+Parameters:
+
+
+
+    EnvironmentName:
+
+        Description: An environment name that will be prefixed to resource names
+
+        Type: String
+
+
+
+    VpcCIDR: 
+
+        Description: Please enter the IP range (CIDR notation) for this VPC
+
+        Type: String
+
+        Default: 10.192.0.0/16
+
+
+
+    PublicSubnet1CIDR:
+
+        Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+
+        Type: String
+
+        Default: 10.192.10.0/24
+
+
+
+    
+
+    PrivateSubnet1CIDR:
+    
+
+        Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+
+        Type: String
+
+        Default: 10.192.20.0/24
+
+
+
+   
+
+
+    
+Resources:
+
+
+    VPC: 
+
+        Type: AWS::EC2::VPC
+
+        Properties:
+
+            CidrBlock: !Ref VpcCIDR
+
+            Tags: 
+
+                - Key: Name 
+
+                  Value: !Ref EnvironmentName
+
+            
+
+    InternetGateway:
+
+        Type: AWS::EC2::InternetGateway
+
+        Properties:
+
+            Tags:
+
+                - Key: Name
+
+                  Value: !Ref EnvironmentName
+
+            
+
+    InternetGatewayAttachment:
+
+        Type: AWS::EC2::VPCGatewayAttachment
+
+        Properties:
+
+            InternetGatewayId: !Ref InternetGateway
+
+            VpcId: !Ref VPC
+
+
+
+    PublicSubnet1: 
+
+        Type: AWS::EC2::Subnet
+
+        Properties:
+
+            VpcId: !Ref VPC
+
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+
+            CidrBlock: !Ref PublicSubnet1CIDR
+
+            MapPublicIpOnLaunch: true
+
+            Tags: 
+
+                - Key: Name 
+
+                  Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+
+
+   
+
+
+
+    PrivateSubnet1: 
+
+        Type: AWS::EC2::Subnet
+
+        Properties:
+
+            VpcId: !Ref VPC
+
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+
+            CidrBlock: !Ref PrivateSubnet1CIDR
+
+            MapPublicIpOnLaunch: false
+
+            Tags: 
+
+                - Key: Name 
+
+                  Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+
+
+
+  
+
+
+
+    NatGateway1EIP:
+
+        Type: AWS::EC2::EIP
+
+        DependsOn: InternetGatewayAttachment
+
+        Properties: 
+
+            Domain: vpc
+
+
+
+    
+
+
+
+    NatGateway1: 
+
+        Type: AWS::EC2::NatGateway
+
+        Properties: 
+
+            AllocationId: !GetAtt NatGateway1EIP.AllocationId
+
+            SubnetId: !Ref PublicSubnet1
+
+
+
+   
+
+
+
+    PublicRouteTable:
+
+        Type: AWS::EC2::RouteTable
+
+        Properties: 
+
+            VpcId: !Ref VPC
+
+            Tags: 
+
+                - Key: Name 
+
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+
+
+    DefaultPublicRoute: 
+
+        Type: AWS::EC2::Route
+
+        DependsOn: InternetGatewayAttachment
+
+        Properties: 
+
+            RouteTableId: !Ref PublicRouteTable
+
+            DestinationCidrBlock: 0.0.0.0/0
+
+            GatewayId: !Ref InternetGateway
+
+
+
+    PublicSubnet1RouteTableAssociation:
+
+        Type: AWS::EC2::SubnetRouteTableAssociation
+
+        Properties:
+
+            RouteTableId: !Ref PublicRouteTable
+
+            SubnetId: !Ref PublicSubnet1
+
+
+
+    
+    
+
+
+
+    PrivateRouteTable1:
+
+        Type: AWS::EC2::RouteTable
+
+        Properties: 
+
+            VpcId: !Ref VPC
+
+            Tags: 
+
+                - Key: Name 
+
+                  Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+
+
+
+    DefaultPrivateRoute1:
+
+        Type: AWS::EC2::Route
+
+        Properties:
+
+            RouteTableId: !Ref PrivateRouteTable1
+
+            DestinationCidrBlock: 0.0.0.0/0
+
+            NatGatewayId: !Ref NatGateway1
+
+
+
+    PrivateSubnet1RouteTableAssociation:
+
+        Type: AWS::EC2::SubnetRouteTableAssociation
+
+        Properties:
+
+            RouteTableId: !Ref PrivateRouteTable1
+
+            SubnetId: !Ref PrivateSubnet1
+
+
+
+
+    NoIngressSecurityGroup:
+    
+    
+        Type: AWS::EC2::SecurityGroup
+
+        Properties:
+        
+            GroupName: "no-ingress-sg"
+
+            GroupDescription: "Security group with no ingress rule"
+
+            VpcId: !Ref VPC
+
+    InstanceSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow HTTP and SSH traffic to our host
+        VpcId:
+          Ref: VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '1'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0 
+    MyEC2Instance1:
+      Type: AWS::EC2::Instance
+      Properties:
+        ImageId: ami-97785bed
+        Tags:
+        - Key: Name
+          Value: A simple example
+        SubnetId:
+          Ref: PublicSubnet1
+        InstanceType: t2.small
+        SecurityGroupIds:
+        - Ref: InstanceSecurityGroup
+    MyEC2Instance2:
+      Type: AWS::EC2::Instance
+      Properties:
+        ImageId: ami-97785bed
+        Tags:
+        - Key: Name
+          Value: A simple example
+        SubnetId:
+          Ref: PublicSubnet1
+        InstanceType: t2.small
+        SecurityGroupIds:
+        - Ref: InstanceSecurityGroup    
+    PublicELB:
+      Type: AWS::ElasticLoadBalancing::LoadBalancer
+      Properties:
+        Subnets:
+        - Ref: PublicSubnet1
+        SecurityGroups:
+        - Ref: InstanceSecurityGroup
+        Instances:
+        - Ref: MyEC2Instance1
+        - Ref: MyEC2Instance2
+        Scheme: internet-facing
+        Listeners:
+        - LoadBalancerPort: '80'
+          InstancePort: '80'
+          Protocol: HTTP
+        HealthCheck:
+          Target: HTTP:80/index.html
+          HealthyThreshold: '3'
+          UnhealthyThreshold: '5'
+          Interval: '30'
+          Timeout: '5'
+        ConnectionDrainingPolicy:
+          Enabled: 'true'
+          Timeout: '60'
+     
+    PrivateELB:
+      Type: AWS::ElasticLoadBalancing::LoadBalancer
+      Properties:
+        SecurityGroups:
+        - Ref: InstanceSecurityGroup
+        Subnets:
+        - Ref: PrivateSubnet1
+        Listeners:
+        - LoadBalancerPort: '80'
+          InstancePort: '80'
+          Protocol: HTTP
+        Scheme: internal
+        HealthCheck:
+          Target: HTTP:80/
+          HealthyThreshold: '3'
+          UnhealthyThreshold: '5'
+          Interval: '90'
+          Timeout: '60'
+ 
+    MyS3Bucket:
+      Type: "AWS::S3::Bucket"
+      Properties:
+        AccessControl: PublicRead
+        
+    SimpleConfig:
+      Type: AWS::AutoScaling::LaunchConfiguration
+      Properties:
+        ImageId: ami-97785bed
+        SecurityGroups:
+        - Ref: InstanceSecurityGroup
+        InstanceType: m1.small
+        BlockDeviceMappings:
+        - DeviceName: "/dev/sdk"
+          Ebs:
+            VolumeSize: '30'
+        - DeviceName: "/dev/sdc"
+          VirtualName: ephemeral0
+
+
+    MyServerGroup:
+      Type: AWS::AutoScaling::AutoScalingGroup
+      Properties:
+        AvailabilityZones:
+          Fn::GetAZs: ''
+        LaunchConfigurationName:
+          Ref: SimpleConfig
+        MinSize: '2'
+        MaxSize: '4'
+        LoadBalancerNames:
+        - Ref: PublicELB 
+Outputs: 
+
+
+
+    VPC: 
+
+        Description: A reference to the created VPC
+
+        Value: !Ref VPC
+
+
+
+    PublicSubnets:
+
+        Description: A list of the public subnets
+
+        Value: !Join [ ",", [ !Ref PublicSubnet1 ]]
+
+
+
+    PrivateSubnets:
+
+        Description: A list of the private subnets
+
+        Value: !Join [ ",", [ !Ref PrivateSubnet1 ]]
+
+
+
+    PublicSubnet1:
+
+        Description: A reference to the public subnet in the 1st Availability Zone
+
+        Value: !Ref PublicSubnet1
+
+   
+
+    PrivateSubnet1:
+
+        Description: A reference to the private subnet in the 1st Availability Zone
+
+        Value: !Ref PrivateSubnet1
+
+
+
+        
+        
+        
+    NoIngressSecurityGroup:
+
+        Description: Security group with no ingress rule
+        
+        Value: !Ref NoIngressSecurityGroup
+
+
+
